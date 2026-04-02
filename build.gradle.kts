@@ -17,7 +17,6 @@ repositories {
 dependencies {
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
-        bundledPlugin("com.intellij.modules.lang")
         instrumentationTools()
     }
     implementation("com.google.code.gson:gson:2.11.0")

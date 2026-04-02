@@ -46,4 +46,7 @@ object Constants {
 
     // PNG Parsing
     const val PNG_ALPHA_THRESHOLD = 2
+
+    // Dismissed Cooldown
+    const val DISMISSED_COOLDOWN_MS = 180_000L
 }

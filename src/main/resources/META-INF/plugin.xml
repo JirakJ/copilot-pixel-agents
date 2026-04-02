@@ -30,6 +30,8 @@
                 serviceImplementation="com.jirakj.pixelagents.services.TranscriptParserService"/>
         <projectService
                 serviceImplementation="com.jirakj.pixelagents.services.TimerManagerService"/>
+        <projectService
+                serviceImplementation="com.jirakj.pixelagents.services.AssetLoaderService"/>
     </extensions>
 
     <actions>

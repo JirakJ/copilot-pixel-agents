@@ -4,6 +4,7 @@
 *.iws
 *.ipr
 out/
+.intellijPlatform/
 
 # Gradle
 .gradle/
@@ -19,7 +20,14 @@ node_modules/
 webview-ui/dist/
 webview-ui/node_modules/
 
+# Built webview in resources (regenerated from webview-ui)
+src/main/resources/webview/
+
 # Compiled
 *.class
 *.jar
 !gradle/wrapper/*.jar
+
+# Dist output
+dist/
+.kotlin/

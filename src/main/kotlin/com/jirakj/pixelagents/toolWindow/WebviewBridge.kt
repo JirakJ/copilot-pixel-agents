@@ -2,15 +2,20 @@ package com.jirakj.pixelagents.toolWindow
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.project.Project
 import com.intellij.ui.jcef.JBCefBrowser
+import com.jirakj.pixelagents.Constants
+import com.jirakj.pixelagents.services.*
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefMessageRouterHandlerAdapter
-import org.cef.CefSettings
-import com.intellij.openapi.application.ApplicationManager
+import java.io.File
 
 class WebviewBridge(
     private val browser: JBCefBrowser,
@@ -22,36 +27,55 @@ class WebviewBridge(
         private val gson = Gson()
     }
 
-    private val messageHandler = object : CefMessageRouterHandlerAdapter() {
-        override fun onQuery(
-            browser: CefBrowser,
-            frame: CefFrame,
-            queryId: Long,
-            request: String,
-            persistent: Boolean,
-            callback: org.cef.callback.CefQueryCallback
-        ): Boolean {
-            try {
-                val message = gson.fromJson(request, JsonObject::class.java)
-                handleWebviewMessage(message)
-                callback.success("")
-            } catch (e: Exception) {
-                LOG.error("Error handling webview message: ${e.message}", e)
-                callback.failure(0, e.message ?: "Unknown error")
-            }
-            return true
-        }
-    }
+    private val agentManager = AgentManagerService.getInstance(project)
+    private val layoutPersistence = LayoutPersistenceService.getInstance(project)
+    private val timerManager = TimerManagerService.getInstance(project)
+    private val transcriptParser = TranscriptParserService.getInstance(project)
+    private val fileWatcher = FileWatcherService.getInstance(project)
+    private val assetLoader = AssetLoaderService.getInstance(project)
+    private val configPersistence = ConfigPersistenceService.getInstance()
 
     init {
-        val config = org.cef.CefApp.getInstance().createClient()
-        // Message router will be set up after JCEF initialization
+        // Wire up services
+        agentManager.setBridge(this)
+        timerManager.setBridge(this)
+        transcriptParser.setBridge(this)
+        assetLoader.setBridge(this)
+        fileWatcher.initialize(this, agentManager.agents, timerManager, transcriptParser)
+
+        // Set up JCEF message router
+        val router = org.cef.CefApp.getInstance().let {
+            val config = org.cef.browser.CefMessageRouter.CefMessageRouterConfig()
+            config.jsQueryFunction = "cefQuery"
+            config.jsCancelFunction = "cefQueryCancel"
+            org.cef.browser.CefMessageRouter.create(config)
+        }
+
+        router.addHandler(object : CefMessageRouterHandlerAdapter() {
+            override fun onQuery(
+                browser: CefBrowser,
+                frame: CefFrame,
+                queryId: Long,
+                request: String,
+                persistent: Boolean,
+                callback: org.cef.callback.CefQueryCallback
+            ): Boolean {
+                try {
+                    val message = gson.fromJson(request, JsonObject::class.java)
+                    handleWebviewMessage(message)
+                    callback.success("")
+                } catch (e: Exception) {
+                    LOG.error("Error handling webview message: ${e.message}", e)
+                    callback.failure(0, e.message ?: "Unknown error")
+                }
+                return true
+            }
+        }, true)
+
+        browser.jbCefClient.cefClient.addMessageRouter(router)
         LOG.info("WebviewBridge initialized for project: ${project.name}")
     }
 
-    /**
-     * Send a message from Kotlin to the webview (equivalent to VS Code webview.postMessage)
-     */
     fun postMessage(message: Any) {
         val json = gson.toJson(message)
         ApplicationManager.getApplication().invokeLater {
@@ -63,9 +87,6 @@ class WebviewBridge(
         }
     }
 
-    /**
-     * Send a typed message with type field
-     */
     fun postMessage(type: String, data: Map<String, Any?> = emptyMap()) {
         val message = mutableMapOf<String, Any?>("type" to type)
         message.putAll(data)
@@ -74,6 +95,7 @@ class WebviewBridge(
 
     private fun handleWebviewMessage(message: JsonObject) {
         val type = message.get("type")?.asString ?: return
+        LOG.info("Received webview message: $type")
 
         when (type) {
             "webviewReady" -> onWebviewReady()
@@ -96,29 +118,203 @@ class WebviewBridge(
         }
     }
 
-    // TODO: Implement all message handlers
     private fun onWebviewReady() {
-        LOG.info("Webview ready")
+        LOG.info("Webview ready — sending settings and assets")
+
+        // Send settings
+        val globalProps = PropertiesComponent.getInstance()
+        val soundEnabled = globalProps.getBoolean(Constants.KEY_SOUND_ENABLED, true)
+        val lastSeenVersion = globalProps.getValue(Constants.KEY_LAST_SEEN_VERSION, "")
+        val alwaysShowLabels = globalProps.getBoolean(Constants.KEY_ALWAYS_SHOW_LABELS, false)
+        val watchAllSessions = globalProps.getBoolean(Constants.KEY_WATCH_ALL_SESSIONS, false)
+        val config = configPersistence.readConfig()
+
+        postMessage("settingsLoaded", mapOf(
+            "soundEnabled" to soundEnabled,
+            "lastSeenVersion" to lastSeenVersion,
+            "extensionVersion" to "0.1.0",
+            "alwaysShowLabels" to alwaysShowLabels,
+            "watchAllSessions" to watchAllSessions,
+            "externalAssetDirectories" to config.externalAssetDirectories
+        ))
+
+        // Load and send assets in background thread
+        ApplicationManager.getApplication().executeOnPooledThread {
+            assetLoader.loadAndSendAllAssets()
+
+            // Send layout
+            val layoutJson = layoutPersistence.readLayoutFromFile()
+            if (layoutJson != null) {
+                try {
+                    val layout = gson.fromJson(layoutJson, Any::class.java)
+                    postMessage("layoutLoaded", mapOf("layout" to layout, "wasReset" to false))
+                } catch (e: Exception) {
+                    LOG.warn("Failed to parse layout: ${e.message}")
+                    sendDefaultLayout()
+                }
+            } else {
+                sendDefaultLayout()
+            }
+
+            // Restore and send existing agents
+            agentManager.restoreAgents()
+            agentManager.sendExistingAgents()
+        }
+    }
+
+    private fun sendDefaultLayout() {
+        val defaultLayout = assetLoader.loadDefaultLayout()
+        if (defaultLayout != null) {
+            layoutPersistence.writeLayoutToFile(defaultLayout)
+            val layout = gson.fromJson(defaultLayout, Any::class.java)
+            postMessage("layoutLoaded", mapOf("layout" to layout, "wasReset" to false))
+        }
     }
 
     private fun onOpenClaude(message: JsonObject) {
-        LOG.info("Open Claude requested")
+        val folderPath = message.get("folderPath")?.asString
+        val bypassPermissions = message.get("bypassPermissions")?.asBoolean ?: false
+        agentManager.launchNewAgent(folderPath, bypassPermissions)
     }
 
-    private fun onFocusAgent(message: JsonObject) {}
-    private fun onCloseAgent(message: JsonObject) {}
-    private fun onSaveLayout(message: JsonObject) {}
-    private fun onSaveAgentSeats(message: JsonObject) {}
-    private fun onSetSoundEnabled(message: JsonObject) {}
-    private fun onSetLastSeenVersion(message: JsonObject) {}
-    private fun onSetAlwaysShowLabels(message: JsonObject) {}
-    private fun onSetWatchAllSessions(message: JsonObject) {}
-    private fun onRequestDiagnostics() {}
-    private fun onOpenSessionsFolder() {}
-    private fun onExportLayout() {}
-    private fun onImportLayout() {}
-    private fun onAddExternalAssetDirectory() {}
-    private fun onRemoveExternalAssetDirectory(message: JsonObject) {}
+    private fun onFocusAgent(message: JsonObject) {
+        val id = message.get("id")?.asInt ?: return
+        // Focus the terminal associated with this agent
+        LOG.info("Focus agent $id requested")
+    }
+
+    private fun onCloseAgent(message: JsonObject) {
+        val id = message.get("id")?.asInt ?: return
+        agentManager.removeAgent(id)
+    }
+
+    private fun onSaveLayout(message: JsonObject) {
+        val layout = message.get("layout")
+        if (layout != null) {
+            layoutPersistence.writeLayoutToFile(gson.toJson(layout))
+        }
+    }
+
+    private fun onSaveAgentSeats(message: JsonObject) {
+        val seats = message.get("seats")
+        if (seats != null) {
+            PropertiesComponent.getInstance(project)
+                .setValue(Constants.KEY_AGENT_SEATS, gson.toJson(seats))
+        }
+    }
+
+    private fun onSetSoundEnabled(message: JsonObject) {
+        val enabled = message.get("enabled")?.asBoolean ?: return
+        PropertiesComponent.getInstance().setValue(Constants.KEY_SOUND_ENABLED, enabled)
+    }
+
+    private fun onSetLastSeenVersion(message: JsonObject) {
+        val version = message.get("version")?.asString ?: return
+        PropertiesComponent.getInstance().setValue(Constants.KEY_LAST_SEEN_VERSION, version)
+    }
+
+    private fun onSetAlwaysShowLabels(message: JsonObject) {
+        val enabled = message.get("enabled")?.asBoolean ?: return
+        PropertiesComponent.getInstance().setValue(Constants.KEY_ALWAYS_SHOW_LABELS, enabled)
+    }
+
+    private fun onSetWatchAllSessions(message: JsonObject) {
+        val enabled = message.get("enabled")?.asBoolean ?: return
+        PropertiesComponent.getInstance().setValue(Constants.KEY_WATCH_ALL_SESSIONS, enabled)
+    }
+
+    private fun onRequestDiagnostics() {
+        val diagnostics = agentManager.agents.values.map { agent ->
+            mapOf(
+                "id" to agent.id,
+                "isExternal" to agent.isExternal,
+                "jsonlFile" to agent.jsonlFile,
+                "fileOffset" to agent.fileOffset,
+                "linesProcessed" to agent.linesProcessed,
+                "lastDataAt" to agent.lastDataAt
+            )
+        }
+        postMessage("agentDiagnostics", mapOf("agents" to diagnostics))
+    }
+
+    private fun onOpenSessionsFolder() {
+        val homeDir = System.getProperty("user.home")
+        val sessionsDir = File("$homeDir/.claude/projects")
+        if (sessionsDir.exists()) {
+            com.intellij.ide.BrowserUtil.browse(sessionsDir.toURI())
+        }
+    }
+
+    private fun onExportLayout() {
+        ApplicationManager.getApplication().invokeLater {
+            val descriptor = FileChooserDescriptorFactory.createSingleFileDescriptor("json")
+            val chooser = FileChooserFactory.getInstance().createFileChooser(descriptor, project, null)
+            val layoutJson = layoutPersistence.readLayoutFromFile() ?: return@invokeLater
+            // Use a file chooser to pick destination, then write
+            val files = chooser.choose(project)
+            if (files.isNotEmpty()) {
+                File(files[0].path).writeText(layoutJson)
+            }
+        }
+    }
+
+    private fun onImportLayout() {
+        ApplicationManager.getApplication().invokeLater {
+            val descriptor = FileChooserDescriptorFactory.createSingleFileDescriptor("json")
+            val chooser = FileChooserFactory.getInstance().createFileChooser(descriptor, project, null)
+            val files = chooser.choose(project)
+            if (files.isNotEmpty()) {
+                val file = File(files[0].path)
+                try {
+                    val content = file.readText()
+                    val json = gson.fromJson(content, JsonObject::class.java)
+                    if (json.get("version")?.asInt == 1 && json.has("tiles")) {
+                        layoutPersistence.writeLayoutToFile(content)
+                        val layout = gson.fromJson(content, Any::class.java)
+                        postMessage("layoutLoaded", mapOf("layout" to layout, "wasReset" to false))
+                    }
+                } catch (e: Exception) {
+                    LOG.warn("Failed to import layout: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun onAddExternalAssetDirectory() {
+        ApplicationManager.getApplication().invokeLater {
+            val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
+            val chooser = FileChooserFactory.getInstance().createFileChooser(descriptor, project, null)
+            val files = chooser.choose(project)
+            if (files.isNotEmpty()) {
+                val dirPath = files[0].path
+                val config = configPersistence.readConfig()
+                if (dirPath !in config.externalAssetDirectories) {
+                    val updated = config.copy(
+                        externalAssetDirectories = config.externalAssetDirectories + dirPath
+                    )
+                    configPersistence.writeConfig(updated)
+                    postMessage("externalAssetDirectoriesUpdated", mapOf("dirs" to updated.externalAssetDirectories))
+                    // Reload furniture assets
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        assetLoader.loadAndSendAllAssets()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun onRemoveExternalAssetDirectory(message: JsonObject) {
+        val dirPath = message.get("path")?.asString ?: return
+        val config = configPersistence.readConfig()
+        val updated = config.copy(
+            externalAssetDirectories = config.externalAssetDirectories.filter { it != dirPath }
+        )
+        configPersistence.writeConfig(updated)
+        postMessage("externalAssetDirectoriesUpdated", mapOf("dirs" to updated.externalAssetDirectories))
+        ApplicationManager.getApplication().executeOnPooledThread {
+            assetLoader.loadAndSendAllAssets()
+        }
+    }
 
     override fun dispose() {
         LOG.info("WebviewBridge disposed")
