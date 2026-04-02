@@ -1,0 +1,45 @@
+<idea-plugin>
+    <id>com.jirakj.pixelagents</id>
+    <name>Copilot Pixel Agents</name>
+    <vendor email="jirakj@users.noreply.github.com" url="https://github.com/JirakJ">JirakJ</vendor>
+
+    <description><![CDATA[
+    Pixel art office where your GitHub Copilot agents come to life as animated characters.
+    Watch your AI agents work in a charming pixel art office, each represented by a unique animated character
+    that types, reads, and walks around as they complete coding tasks.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Pixel Agents"
+                    anchor="bottom"
+                    secondary="true"
+                    factoryClass="com.jirakj.pixelagents.toolWindow.PixelAgentsToolWindowFactory"
+                    icon="/icons/pixel-agents-13.svg"/>
+
+        <applicationService
+                serviceImplementation="com.jirakj.pixelagents.services.ConfigPersistenceService"/>
+        <projectService
+                serviceImplementation="com.jirakj.pixelagents.services.AgentManagerService"/>
+        <projectService
+                serviceImplementation="com.jirakj.pixelagents.services.LayoutPersistenceService"/>
+        <projectService
+                serviceImplementation="com.jirakj.pixelagents.services.FileWatcherService"/>
+        <projectService
+                serviceImplementation="com.jirakj.pixelagents.services.TranscriptParserService"/>
+        <projectService
+                serviceImplementation="com.jirakj.pixelagents.services.TimerManagerService"/>
+    </extensions>
+
+    <actions>
+        <action id="com.jirakj.pixelagents.ShowPanel"
+                class="com.jirakj.pixelagents.actions.ShowPanelAction"
+                text="Show Pixel Agents"
+                description="Open the Pixel Agents tool window"/>
+        <action id="com.jirakj.pixelagents.ExportDefaultLayout"
+                class="com.jirakj.pixelagents.actions.ExportDefaultLayoutAction"
+                text="Export Layout as Default"
+                description="Export current layout as the default layout"/>
+    </actions>
+</idea-plugin>
