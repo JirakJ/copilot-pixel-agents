@@ -3,7 +3,6 @@ package com.jirakj.pixelagents.services
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
@@ -11,7 +10,6 @@ import com.intellij.openapi.project.Project
 import com.jirakj.pixelagents.Constants
 import com.jirakj.pixelagents.toolWindow.WebviewBridge
 import java.awt.image.BufferedImage
-import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
 import javax.imageio.ImageIO
@@ -338,26 +336,25 @@ class AssetLoaderService(private val project: Project) : Disposable {
     // ── Default layout ──
 
     fun loadDefaultLayout(): String? {
-        // Try versioned layouts first
+        // Try versioned layouts, keep only the highest revision
         var bestRevision = 0
-        var bestStream: InputStream? = null
+        var bestContent: String? = null
 
         for (rev in 1..100) {
             val stream = getAssetStream("default-layout-$rev.json")
             if (stream != null) {
                 bestRevision = rev
-                bestStream?.close()
-                bestStream = stream
+                bestContent = stream.use { it.bufferedReader().readText() }
             } else {
                 break
             }
         }
 
-        if (bestStream == null) {
-            bestStream = getAssetStream("default-layout.json")
+        if (bestContent == null) {
+            bestContent = getAssetStream("default-layout.json")?.use { it.bufferedReader().readText() }
         }
 
-        return bestStream?.use { it.bufferedReader().readText() }
+        return bestContent
     }
 
     // ── Asset resource helpers ──
@@ -379,13 +376,50 @@ class AssetLoaderService(private val project: Project) : Disposable {
         val devDir = File("src/main/resources/assets/$relativePath")
         if (devDir.exists() && devDir.isDirectory) return devDir
 
-        // In production, resources are in JAR — extract or use URL
-        val resourceUrl = javaClass.classLoader.getResource("assets/$relativePath")
-        if (resourceUrl != null && resourceUrl.protocol == "file") {
-            val file = File(resourceUrl.toURI())
-            if (file.isDirectory) return file
-        }
+        // In production, resources are in JAR — extract to temp
+        return extractResourceDir("assets/$relativePath")
+    }
 
+    private fun extractResourceDir(resourcePath: String): File? {
+        val targetDir = File(
+            com.intellij.openapi.application.PathManager.getPluginTempPath(),
+            "pixel-agents/$resourcePath"
+        )
+        if (targetDir.exists() && targetDir.isDirectory) return targetDir
+
+        try {
+            val classLoader = javaClass.classLoader
+            val url = classLoader.getResource(resourcePath) ?: return null
+
+            if (url.protocol == "file") {
+                return File(url.toURI()).takeIf { it.isDirectory }
+            }
+
+            if (url.protocol == "jar") {
+                val jarPath = url.path.substringBefore("!").removePrefix("file:")
+                val jar = java.util.jar.JarFile(jarPath)
+                val prefix = resourcePath.removeSuffix("/") + "/"
+
+                targetDir.mkdirs()
+
+                jar.entries().asSequence()
+                    .filter { it.name.startsWith(prefix) && !it.isDirectory }
+                    .forEach { entry ->
+                        val relativeName = entry.name.removePrefix(prefix)
+                        val outFile = File(targetDir, relativeName)
+                        outFile.parentFile.mkdirs()
+                        jar.getInputStream(entry).use { input ->
+                            outFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                jar.close()
+                return targetDir
+            }
+        } catch (e: Exception) {
+            LOG.warn("Failed to extract resource dir $resourcePath: ${e.message}")
+        }
         return null
     }
 

@@ -17,8 +17,9 @@ Port of [pixel-agents](https://github.com/pablodelucca/pixel-agents) VS Code ext
 
 ## Requirements
 
-- JetBrains IDE 2024.3+
+- JetBrains IDE 2024.3+ (IntelliJ IDEA, WebStorm, PyCharm, etc.)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed
+- Node.js 18+ (for building the webview)
 
 ## Installation
 
@@ -29,28 +30,36 @@ Port of [pixel-agents](https://github.com/pablodelucca/pixel-agents) VS Code ext
 ```bash
 git clone https://github.com/JirakJ/copilot-pixel-agents.git
 cd copilot-pixel-agents
-cd webview-ui && npm install && npm run build && cd ..
+cd webview-ui && npm install && cd ..
 ./gradlew buildPlugin
 ```
 
-The plugin ZIP will be in `build/distributions/`. Install via IDE Settings → Plugins → ⚙️ → Install Plugin from Disk.
+The Gradle build automatically runs `npm run build` for the webview.  
+Plugin ZIP will be in `build/distributions/`. Install via IDE Settings → Plugins → ⚙️ → Install Plugin from Disk.
 
 ## Development
 
 ```bash
+# Install webview dependencies (one-time)
+cd webview-ui && npm install && cd ..
+
 # Build and launch sandbox IDE
 ./gradlew runIde
 
-# Debug
-./gradlew runIde --debug
+# Just compile (fast check)
+./gradlew compileKotlin
+
+# Full build with plugin ZIP
+./gradlew buildPlugin
 ```
 
 ## Architecture
 
 - **Backend**: Kotlin plugin using IntelliJ Platform SDK
 - **Frontend**: React + TypeScript webview via JCEF (JetBrains Chromium Embedded Framework)
-- **Communication**: CefMessageRouter bridge (equivalent to VS Code postMessage)
+- **Communication**: JBCefJSQuery bridge (equivalent to VS Code postMessage)
 - **Game Engine**: Canvas-based pixel art renderer with character FSM, BFS pathfinding, z-sorted rendering
+- **Terminal**: Uses JetBrains Terminal API to launch visible Claude Code sessions
 
 See [.github/copilot-instructions.md](.github/copilot-instructions.md) for detailed architecture documentation.
 

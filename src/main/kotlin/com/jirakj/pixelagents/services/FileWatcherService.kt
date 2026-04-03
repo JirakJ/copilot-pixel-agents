@@ -79,16 +79,24 @@ class FileWatcherService(private val project: Project) : Disposable {
             val fileSize = file.length()
             if (fileSize <= agent.fileOffset) return
 
+            // Handle file truncation (e.g. /clear creates new file)
+            if (fileSize < agent.fileOffset) {
+                agent.fileOffset = 0
+                agent.lineBuffer = ""
+            }
+
             val bytesToRead = minOf(fileSize - agent.fileOffset, MAX_READ_BYTES)
             val buf = ByteArray(bytesToRead.toInt())
 
+            val bytesRead: Int
             RandomAccessFile(file, "r").use { raf ->
                 raf.seek(agent.fileOffset)
-                raf.readFully(buf)
+                bytesRead = raf.read(buf)
             }
-            agent.fileOffset += bytesToRead
+            if (bytesRead <= 0) return
+            agent.fileOffset += bytesRead
 
-            val text = agent.lineBuffer + String(buf, Charsets.UTF_8)
+            val text = agent.lineBuffer + String(buf, 0, bytesRead, Charsets.UTF_8)
             val lines = text.split('\n').toMutableList()
             agent.lineBuffer = lines.removeLastOrNull() ?: ""
 

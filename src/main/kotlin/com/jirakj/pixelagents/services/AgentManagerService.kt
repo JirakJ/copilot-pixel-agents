@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -15,6 +16,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 @Service(Service.Level.PROJECT)
@@ -33,6 +35,7 @@ class AgentManagerService(private val project: Project) : Disposable {
     private var nextTerminalIndex = 1
     private var bridge: WebviewBridge? = null
     private val scheduler = Executors.newScheduledThreadPool(1)
+    private val jsonlPollingFutures = ConcurrentHashMap<Int, ScheduledFuture<*>>()
 
     fun setBridge(bridge: WebviewBridge) {
         this.bridge = bridge
@@ -88,22 +91,28 @@ class AgentManagerService(private val project: Project) : Disposable {
         val terminalIndex = nextTerminalIndex++
         val terminalName = "${Constants.TERMINAL_NAME_PREFIX} $terminalIndex"
 
-        try {
-            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val workDir = folderPath ?: project.basePath ?: System.getProperty("user.home")
+
+                // Try to use the Terminal plugin API for a visible terminal
                 try {
-                    // Use ProcessBuilder as a portable approach that works without terminal plugin dependency
-                    val workingDir = folderPath ?: project.basePath ?: System.getProperty("user.home")
+                    val terminalManager = org.jetbrains.plugins.terminal.TerminalToolWindowManager.getInstance(project)
+                    @Suppress("DEPRECATION")
+                    val widget = terminalManager.createLocalShellWidget(workDir, terminalName)
+                    widget.executeCommand(command)
+                    LOG.info("Launched terminal '$terminalName' for agent $agentId")
+                } catch (e: Exception) {
+                    // Fallback if terminal plugin not available
+                    LOG.warn("Terminal plugin not available, using ProcessBuilder: ${e.message}")
                     val processBuilder = ProcessBuilder("bash", "-c", command)
-                    processBuilder.directory(java.io.File(workingDir))
+                    processBuilder.directory(File(workDir))
                     processBuilder.redirectErrorStream(true)
                     processBuilder.start()
-                    LOG.info("Launched process '$terminalName' for agent $agentId: $command")
-                } catch (e: Exception) {
-                    LOG.error("Failed to launch process for agent $agentId: ${e.message}", e)
                 }
+            } catch (e: Exception) {
+                LOG.error("Failed to launch terminal for agent $agentId: ${e.message}", e)
             }
-        } catch (e: Exception) {
-            LOG.error("Failed to launch terminal for agent $agentId: ${e.message}", e)
         }
     }
 
@@ -114,13 +123,19 @@ class AgentManagerService(private val project: Project) : Disposable {
                 LOG.info("JSONL file found for agent $agentId: ${file.name}")
                 val fileWatcher = FileWatcherService.getInstance(project)
                 fileWatcher.startFileWatching(agentId, jsonlFile)
+                // Cancel this polling task now that file watching is active
+                jsonlPollingFutures.remove(agentId)?.cancel(false)
             }
         }, 0, Constants.JSONL_POLL_INTERVAL_MS, TimeUnit.MILLISECONDS)
+        jsonlPollingFutures[agentId] = future
     }
 
     fun removeAgent(agentId: Int) {
         val agent = agents.remove(agentId) ?: return
         LOG.info("Removing agent $agentId")
+
+        // Cancel any active JSONL polling for this agent
+        jsonlPollingFutures.remove(agentId)?.cancel(false)
 
         val timerManager = TimerManagerService.getInstance(project)
         timerManager.cancelAllTimers(agentId)
@@ -218,6 +233,8 @@ class AgentManagerService(private val project: Project) : Disposable {
 
     override fun dispose() {
         scheduler.shutdownNow()
+        jsonlPollingFutures.values.forEach { it.cancel(true) }
+        jsonlPollingFutures.clear()
         agents.clear()
     }
 }

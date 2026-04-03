@@ -10,11 +10,12 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.project.Project
 import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefJSQuery
 import com.jirakj.pixelagents.Constants
 import com.jirakj.pixelagents.services.*
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
-import org.cef.handler.CefMessageRouterHandlerAdapter
+import org.cef.handler.CefLoadHandlerAdapter
 import java.io.File
 
 class WebviewBridge(
@@ -35,6 +36,8 @@ class WebviewBridge(
     private val assetLoader = AssetLoaderService.getInstance(project)
     private val configPersistence = ConfigPersistenceService.getInstance()
 
+    private val jsQuery: JBCefJSQuery
+
     init {
         // Wire up services
         agentManager.setBridge(this)
@@ -43,36 +46,38 @@ class WebviewBridge(
         assetLoader.setBridge(this)
         fileWatcher.initialize(this, agentManager.agents, timerManager, transcriptParser)
 
-        // Set up JCEF message router
-        val router = org.cef.CefApp.getInstance().let {
-            val config = org.cef.browser.CefMessageRouter.CefMessageRouterConfig()
-            config.jsQueryFunction = "cefQuery"
-            config.jsCancelFunction = "cefQueryCancel"
-            org.cef.browser.CefMessageRouter.create(config)
+        // Set up JBCefJSQuery-based communication
+        jsQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
+
+        jsQuery.addHandler { request: String ->
+            try {
+                val message = gson.fromJson(request, JsonObject::class.java)
+                handleWebviewMessage(message)
+                JBCefJSQuery.Response("")
+            } catch (e: Exception) {
+                LOG.error("Error handling webview message: ${e.message}", e)
+                JBCefJSQuery.Response(null, 0, e.message ?: "Unknown error")
+            }
         }
 
-        router.addHandler(object : CefMessageRouterHandlerAdapter() {
-            override fun onQuery(
-                browser: CefBrowser,
-                frame: CefFrame,
-                queryId: Long,
-                request: String,
-                persistent: Boolean,
-                callback: org.cef.callback.CefQueryCallback
-            ): Boolean {
-                try {
-                    val message = gson.fromJson(request, JsonObject::class.java)
-                    handleWebviewMessage(message)
-                    callback.success("")
-                } catch (e: Exception) {
-                    LOG.error("Error handling webview message: ${e.message}", e)
-                    callback.failure(0, e.message ?: "Unknown error")
+        // Inject the cefQuery function after page load
+        browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
+            override fun onLoadEnd(cefBrowser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
+                if (frame.isMain) {
+                    val jsFunction = jsQuery.inject("request")
+                    cefBrowser.executeJavaScript(
+                        """
+                        window.cefQuery = function(params) {
+                            var request = params.request;
+                            $jsFunction
+                        };
+                        """.trimIndent(),
+                        "", 0
+                    )
                 }
-                return true
             }
-        }, true)
+        }, browser.cefBrowser)
 
-        browser.jbCefClient.cefClient.addMessageRouter(router)
         LOG.info("WebviewBridge initialized for project: ${project.name}")
     }
 
@@ -317,6 +322,7 @@ class WebviewBridge(
     }
 
     override fun dispose() {
+        jsQuery.dispose()
         LOG.info("WebviewBridge disposed")
     }
 }

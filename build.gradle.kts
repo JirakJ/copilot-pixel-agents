@@ -17,6 +17,7 @@ repositories {
 dependencies {
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
+        bundledPlugin("org.jetbrains.plugins.terminal")
         instrumentationTools()
     }
     implementation("com.google.code.gson:gson:2.11.0")
@@ -41,5 +42,25 @@ intellijPlatform {
 tasks {
     wrapper {
         gradleVersion = "8.12"
+    }
+
+    // Build webview-ui before processing resources
+    val buildWebview by registering(Exec::class) {
+        workingDir = file("webview-ui")
+        commandLine("npm", "run", "build")
+        inputs.dir("webview-ui/src")
+        inputs.file("webview-ui/package.json")
+        inputs.file("webview-ui/vite.config.ts")
+        outputs.dir("dist/webview")
+    }
+
+    val copyWebview by registering(Copy::class) {
+        dependsOn(buildWebview)
+        from("dist/webview")
+        into("src/main/resources/webview")
+    }
+
+    processResources {
+        dependsOn(copyWebview)
     }
 }
