@@ -98,11 +98,37 @@ function browserMockAssetsPlugin(): Plugin {
   };
 }
 
+// Post-process HTML to remove type="module" and crossorigin for JCEF file:// compatibility
+function jcefCompatPlugin(): Plugin {
+  return {
+    name: 'jcef-compat',
+    enforce: 'post',
+    transformIndexHtml(html) {
+      return html
+        .replace(/ type="module"/g, '')
+        .replace(/ crossorigin/g, '')
+        .replace(/<script (src=)/g, '<script defer $1');
+    },
+    renderChunk(code) {
+      // import.meta.url only works in ES modules — replace with document.baseURI
+      // for file:// compatibility in JCEF classic scripts
+      return code.replace(/import\.meta\.url/g, 'document.baseURI');
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), browserMockAssetsPlugin()],
+  plugins: [react(), browserMockAssetsPlugin(), jcefCompatPlugin()],
   build: {
     outDir: '../dist/webview',
     emptyOutDir: true,
+    modulePreload: false,
+    rollupOptions: {
+      output: {
+        // Single file, no code splitting
+        inlineDynamicImports: true,
+      },
+    },
   },
   base: './',
 });

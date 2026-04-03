@@ -60,20 +60,28 @@ class WebviewBridge(
             }
         }
 
-        // Inject the cefQuery function after page load
+        // Inject the real cefQuery function after page load, replacing the stub
         browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
             override fun onLoadEnd(cefBrowser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
                 if (frame.isMain) {
                     val jsFunction = jsQuery.inject("request")
                     cefBrowser.executeJavaScript(
                         """
-                        window.cefQuery = function(params) {
-                            var request = params.request;
-                            $jsFunction
-                        };
+                        (function() {
+                            var pending = window.__pendingCefQ || [];
+                            window.cefQuery = function(params) {
+                                var request = params.request;
+                                $jsFunction
+                            };
+                            for (var i = 0; i < pending.length; i++) {
+                                window.cefQuery(pending[i]);
+                            }
+                            window.__pendingCefQ = null;
+                        })();
                         """.trimIndent(),
                         "", 0
                     )
+                    LOG.info("Injected cefQuery and replayed ${0} pending requests")
                 }
             }
         }, browser.cefBrowser)

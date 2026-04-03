@@ -15,7 +15,6 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="Pixel Agents"
                     anchor="bottom"
-                    secondary="true"
                     factoryClass="com.jirakj.pixelagents.toolWindow.PixelAgentsToolWindowFactory"
                     icon="/icons/pixel-agents-13.svg"/>
 

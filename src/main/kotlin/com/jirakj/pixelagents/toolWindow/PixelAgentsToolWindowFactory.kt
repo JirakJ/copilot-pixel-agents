@@ -7,6 +7,9 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.openapi.diagnostic.Logger
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.handler.CefDisplayHandlerAdapter
 import java.io.File
 import java.util.jar.JarFile
 
@@ -20,13 +23,36 @@ class PixelAgentsToolWindowFactory : ToolWindowFactory, DumbAware {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val browser = JBCefBrowser()
+
+        // Log JS console messages for diagnostics
+        browser.jbCefClient.addDisplayHandler(object : CefDisplayHandlerAdapter() {
+            override fun onConsoleMessage(
+                browser: CefBrowser?,
+                level: org.cef.CefSettings.LogSeverity?,
+                message: String?,
+                source: String?,
+                line: Int
+            ): Boolean {
+                LOG.info("JCEF Console [$level] $source:$line - $message")
+                return false
+            }
+        }, browser.cefBrowser)
+
+        @Suppress("UNUSED_VARIABLE")
         val bridge = WebviewBridge(browser, project)
 
         val webviewDir = findWebviewDir()
         if (webviewDir != null) {
+            // Inject a cefQuery stub into index.html so runtime detection picks up JCEF
+            // before the deferred main script runs. The real cefQuery is injected in onLoadEnd.
             val indexFile = File(webviewDir, "index.html")
-            browser.loadURL(indexFile.toURI().toString())
-            LOG.info("Loaded webview from: ${indexFile.absolutePath}")
+            val html = indexFile.readText()
+            val stubScript = """<script>window.cefQuery=function(p){window.__pendingCefQ=window.__pendingCefQ||[];window.__pendingCefQ.push(p);};</script>"""
+            val modifiedHtml = html.replace("<script defer", "$stubScript\n    <script defer")
+            val modifiedFile = File(webviewDir, "index_jcef.html")
+            modifiedFile.writeText(modifiedHtml)
+            browser.loadURL(modifiedFile.toURI().toString())
+            LOG.info("Loaded webview from: ${modifiedFile.absolutePath}")
         } else {
             browser.loadHTML("<html><body><h2>Pixel Agents</h2><p>Webview not found. Please build the webview-ui first.</p></body></html>")
             LOG.warn("Webview directory not found")
@@ -64,18 +90,24 @@ class PixelAgentsToolWindowFactory : ToolWindowFactory, DumbAware {
     private fun extractWebviewFromJar(resourceUrl: java.net.URL): File? {
         val targetDir = File(PathManager.getPluginTempPath(), WEBVIEW_CACHE_DIR)
 
-        // If already extracted and index.html exists, reuse
-        if (targetDir.exists() && File(targetDir, "index.html").exists()) {
-            return targetDir
-        }
-
         try {
             // Parse jar path from URL like "jar:file:/path/to/plugin.jar!/webview/index.html"
             val jarPath = resourceUrl.path.substringBefore("!").removePrefix("file:")
-            val jar = JarFile(jarPath)
+            val jarFile = File(jarPath)
 
+            // Re-extract if JAR is newer than the cached index.html
+            val cachedIndex = File(targetDir, "index.html")
+            if (cachedIndex.exists() && cachedIndex.lastModified() >= jarFile.lastModified()) {
+                return targetDir
+            }
+
+            // Clean stale cache and re-extract
+            if (targetDir.exists()) {
+                targetDir.deleteRecursively()
+            }
             targetDir.mkdirs()
 
+            val jar = JarFile(jarPath)
             jar.entries().asSequence()
                 .filter { it.name.startsWith(WEBVIEW_RESOURCE_PREFIX) && !it.isDirectory }
                 .forEach { entry ->

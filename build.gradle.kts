@@ -54,7 +54,7 @@ tasks {
         outputs.dir("dist/webview")
     }
 
-    val copyWebview by registering(Copy::class) {
+    val copyWebview by registering(Sync::class) {
         dependsOn(buildWebview)
         from("dist/webview")
         into("src/main/resources/webview")
