@@ -115,13 +115,6 @@ class AgentManagerService(private val project: Project) : Disposable {
 
     fun isCopilotAgentActive(): Boolean = agents.values.any { it.isCopilot }
 
-    fun removeCopilotAgent() {
-        val copilotAgent = agents.values.find { it.isCopilot } ?: return
-        agents.remove(copilotAgent.id)
-        bridge?.postMessage("agentClosed", mapOf("id" to copilotAgent.id))
-        persistAgents()
-    }
-
     private fun launchTerminal(agentId: Int, command: String, folderPath: String?) {
         val terminalIndex = nextTerminalIndex++
         val terminalName = "${Constants.TERMINAL_NAME_PREFIX} $terminalIndex"
@@ -172,8 +165,10 @@ class AgentManagerService(private val project: Project) : Disposable {
         // Cancel any active JSONL polling for this agent
         jsonlPollingFutures.remove(agentId)?.cancel(false)
 
-        // Skip file watcher / timer cleanup for Copilot agents (no terminal or JSONL)
-        if (!agent.isCopilot) {
+        if (agent.isCopilot) {
+            // Notify CopilotMonitorService to stop polling
+            CopilotMonitorService.getInstance(project).onAgentRemoved()
+        } else {
             val timerManager = TimerManagerService.getInstance(project)
             timerManager.cancelAllTimers(agentId)
 

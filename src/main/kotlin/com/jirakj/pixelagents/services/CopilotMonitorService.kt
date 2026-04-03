@@ -41,6 +41,17 @@ class CopilotMonitorService(private val project: Project) : Disposable {
     fun setBridge(bridge: WebviewBridge) {
         this.bridge = bridge
         subscribeToToolWindowEvents()
+        // Log available tool windows to help identify the correct Copilot Chat ID
+        ApplicationManager.getApplication().invokeLater {
+            val twm = ToolWindowManager.getInstance(project)
+            val ids = twm.toolWindowIds.toList()
+            val copilotIds = ids.filter { it.contains("copilot", ignoreCase = true) || it.contains("chat", ignoreCase = true) }
+            if (copilotIds.isNotEmpty()) {
+                LOG.info("Found Copilot-related tool windows: $copilotIds")
+            } else {
+                LOG.info("No Copilot-related tool windows found. All IDs: $ids")
+            }
+        }
     }
 
     private fun subscribeToToolWindowEvents() {
@@ -49,8 +60,11 @@ class CopilotMonitorService(private val project: Project) : Disposable {
             object : ToolWindowManagerListener {
                 override fun toolWindowShown(toolWindow: com.intellij.openapi.wm.ToolWindow) {
                     if (isCopilotChatWindow(toolWindow.id)) {
-                        LOG.info("Copilot Chat tool window shown")
-                        onCopilotChatOpened()
+                        LOG.info("Copilot Chat tool window shown (id=${toolWindow.id})")
+                        // Auto-start monitoring if a Copilot agent exists but monitoring is stopped
+                        if (agentManager.isCopilotAgentActive() && !isMonitoring.get()) {
+                            startPolling()
+                        }
                     }
                 }
 
@@ -58,12 +72,12 @@ class CopilotMonitorService(private val project: Project) : Disposable {
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType
                 ) {
-                    // Check if Copilot Chat window was hidden/closed
+                    // When Copilot Chat is hidden, stop polling but keep the agent character alive.
+                    // The agent only gets removed when the user explicitly closes it.
+                    if (!isMonitoring.get()) return
                     val tw = findCopilotToolWindow()
                     if (tw == null || !tw.isVisible) {
-                        if (agentManager.isCopilotAgentActive()) {
-                            onCopilotChatClosed()
-                        }
+                        stopPolling()
                     }
                 }
             }
@@ -72,6 +86,7 @@ class CopilotMonitorService(private val project: Project) : Disposable {
 
     private fun isCopilotChatWindow(windowId: String): Boolean {
         return windowId == Constants.COPILOT_CHAT_TOOL_WINDOW_ID ||
+            windowId == "github.copilot.chat" ||
             windowId == "CopilotChat" ||
             windowId == "GitHub.Copilot.Chat" ||
             (windowId.contains("Copilot", ignoreCase = true) && windowId.contains("Chat", ignoreCase = true))
@@ -79,22 +94,42 @@ class CopilotMonitorService(private val project: Project) : Disposable {
 
     private fun findCopilotToolWindow(): com.intellij.openapi.wm.ToolWindow? {
         val twm = ToolWindowManager.getInstance(project)
-        // Try known IDs in order of likelihood
         return twm.getToolWindow(Constants.COPILOT_CHAT_TOOL_WINDOW_ID)
+            ?: twm.getToolWindow("github.copilot.chat")
             ?: twm.getToolWindow("CopilotChat")
             ?: twm.getToolWindow("GitHub.Copilot.Chat")
     }
 
+    /**
+     * Called when user clicks "+ Copilot". Creates the agent character and starts monitoring.
+     * The character stays alive until explicitly removed via closeAgent.
+     */
     fun startMonitoring() {
-        if (isMonitoring.getAndSet(true)) return
-        LOG.info("Starting Copilot Chat monitoring")
-
-        // Create the Copilot agent character
+        // Create the Copilot agent character if not already active
         if (!agentManager.isCopilotAgentActive()) {
             agentManager.launchCopilotAgent()
         }
 
-        // Start polling for activity
+        // Start activity polling if Copilot Chat window is available
+        val tw = findCopilotToolWindow()
+        if (tw != null && tw.isVisible) {
+            startPolling()
+        } else {
+            LOG.info("Copilot agent created — monitoring will start when Copilot Chat opens")
+        }
+    }
+
+    /**
+     * Called when the Copilot agent is removed by the user (via closeAgent).
+     */
+    fun onAgentRemoved() {
+        stopPolling()
+    }
+
+    private fun startPolling() {
+        if (isMonitoring.getAndSet(true)) return
+        LOG.info("Starting Copilot Chat activity polling")
+
         pollingFuture = scheduler.scheduleAtFixedRate(
             { pollCopilotActivity() },
             0,
@@ -103,26 +138,15 @@ class CopilotMonitorService(private val project: Project) : Disposable {
         )
     }
 
-    fun stopMonitoring() {
+    private fun stopPolling() {
         if (!isMonitoring.getAndSet(false)) return
-        LOG.info("Stopping Copilot Chat monitoring")
+        LOG.info("Stopping Copilot Chat activity polling")
 
         pollingFuture?.cancel(false)
         pollingFuture = null
 
-        // Clear any active tool state
+        // Clear active tool state so character goes idle
         finishActiveToolIfNeeded()
-
-        // Remove the Copilot agent character
-        agentManager.removeCopilotAgent()
-    }
-
-    private fun onCopilotChatOpened() {
-        startMonitoring()
-    }
-
-    private fun onCopilotChatClosed() {
-        stopMonitoring()
     }
 
     private fun pollCopilotActivity() {
@@ -133,7 +157,6 @@ class CopilotMonitorService(private val project: Project) : Disposable {
                 try {
                     if (!tw.isVisible) return@invokeLater
 
-                    // Detect activity by hashing the content component's structure
                     val contentHash = computeContentHash(tw)
                     val hasChanged = contentHash != lastContentHash && lastContentHash != 0
                     lastContentHash = contentHash
@@ -153,7 +176,6 @@ class CopilotMonitorService(private val project: Project) : Disposable {
     }
 
     private fun computeContentHash(tw: com.intellij.openapi.wm.ToolWindow): Int {
-        // Hash the component tree depth and child counts as a lightweight change indicator
         val component = tw.component ?: return 0
         return computeComponentHash(component, 0)
     }
@@ -175,7 +197,6 @@ class CopilotMonitorService(private val project: Project) : Disposable {
         lastActivityAt.set(System.currentTimeMillis())
 
         if (!isActive.getAndSet(true)) {
-            // Transition from idle → active
             currentToolId = UUID.randomUUID().toString()
             bridge?.postMessage("agentToolStart", mapOf(
                 "id" to agentId,
@@ -204,10 +225,6 @@ class CopilotMonitorService(private val project: Project) : Disposable {
         bridge?.postMessage("agentToolDone", mapOf(
             "id" to agentId,
             "toolId" to toolId
-        ))
-        bridge?.postMessage("agentStatus", mapOf(
-            "id" to agentId,
-            "status" to "waiting"
         ))
         currentToolId = null
     }
