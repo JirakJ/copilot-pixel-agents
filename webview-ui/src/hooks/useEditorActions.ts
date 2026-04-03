@@ -41,6 +41,7 @@ export interface EditorActions {
   saveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
   setLastSavedLayout: (layout: OfficeLayout) => void;
   handleOpenClaude: () => void;
+  handleOpenCopilot: () => void;
   handleToggleEditMode: () => void;
   handleToolChange: (tool: EditToolType) => void;
   handleTileTypeChange: (type: TileTypeVal) => void;
@@ -105,6 +106,10 @@ export function useEditorActions(
 
   const handleOpenClaude = useCallback(() => {
     bridge.send({ type: 'openClaude' });
+  }, []);
+
+  const handleOpenCopilot = useCallback(() => {
+    bridge.send({ type: 'openCopilot' });
   }, []);
 
   const handleToggleEditMode = useCallback(() => {
@@ -612,6 +617,7 @@ export function useEditorActions(
     saveTimerRef,
     setLastSavedLayout,
     handleOpenClaude,
+    handleOpenCopilot,
     handleToggleEditMode,
     handleToolChange,
     handleTileTypeChange,

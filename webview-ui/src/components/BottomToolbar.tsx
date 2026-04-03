@@ -7,6 +7,7 @@ import { SettingsModal } from './SettingsModal.js';
 interface BottomToolbarProps {
   isEditMode: boolean;
   onOpenClaude: () => void;
+  onOpenCopilot: () => void;
   onToggleEditMode: () => void;
   isDebugMode: boolean;
   onToggleDebugMode: () => void;
@@ -52,6 +53,7 @@ const btnActive: React.CSSProperties = {
 export function BottomToolbar({
   isEditMode,
   onOpenClaude,
+  onOpenCopilot,
   onToggleEditMode,
   isDebugMode,
   onToggleDebugMode,
@@ -239,6 +241,24 @@ export function BottomToolbar({
           </div>
         )}
       </div>
+      <button
+        onClick={onOpenCopilot}
+        onMouseEnter={() => setHovered('copilot')}
+        onMouseLeave={() => setHovered(null)}
+        style={{
+          ...btnBase,
+          padding: '5px 12px',
+          background:
+            hovered === 'copilot'
+              ? 'var(--pixel-agent-hover-bg)'
+              : 'var(--pixel-agent-bg)',
+          border: '2px solid var(--pixel-agent-border)',
+          color: 'var(--pixel-agent-text)',
+        }}
+        title="Add Copilot Chat agent"
+      >
+        + Copilot
+      </button>
       <button
         onClick={onToggleEditMode}
         onMouseEnter={() => setHovered('edit')}

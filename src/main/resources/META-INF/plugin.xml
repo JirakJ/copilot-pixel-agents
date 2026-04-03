@@ -32,6 +32,8 @@
                 serviceImplementation="com.jirakj.pixelagents.services.TimerManagerService"/>
         <projectService
                 serviceImplementation="com.jirakj.pixelagents.services.AssetLoaderService"/>
+        <projectService
+                serviceImplementation="com.jirakj.pixelagents.services.CopilotMonitorService"/>
     </extensions>
 
     <actions>

@@ -49,4 +49,10 @@ object Constants {
 
     // Dismissed Cooldown
     const val DISMISSED_COOLDOWN_MS = 180_000L
+
+    // Copilot Chat Integration
+    const val COPILOT_CHAT_TOOL_WINDOW_ID = "GitHub Copilot Chat"
+    const val COPILOT_POLL_INTERVAL_MS = 2000L
+    const val COPILOT_IDLE_THRESHOLD_MS = 5000L
+    const val COPILOT_TOOL_NAME = "Copilot Chat"
 }

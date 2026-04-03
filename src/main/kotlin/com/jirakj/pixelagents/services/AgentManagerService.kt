@@ -87,6 +87,41 @@ class AgentManagerService(private val project: Project) : Disposable {
         return agentId
     }
 
+    fun launchCopilotAgent(): Int {
+        // Check if there's already a Copilot agent
+        val existing = agents.values.find { it.isCopilot }
+        if (existing != null) return existing.id
+
+        val agentId = nextAgentId++
+        val agent = AgentState(
+            id = agentId,
+            isCopilot = true,
+            projectDir = "",
+            jsonlFile = "",
+            folderName = "Copilot"
+        )
+        agents[agentId] = agent
+
+        bridge?.postMessage("agentCreated", mapOf(
+            "id" to agentId,
+            "folderName" to "Copilot"
+        ))
+
+        persistAgents()
+        return agentId
+    }
+
+    fun getCopilotAgentId(): Int? = agents.values.find { it.isCopilot }?.id
+
+    fun isCopilotAgentActive(): Boolean = agents.values.any { it.isCopilot }
+
+    fun removeCopilotAgent() {
+        val copilotAgent = agents.values.find { it.isCopilot } ?: return
+        agents.remove(copilotAgent.id)
+        bridge?.postMessage("agentClosed", mapOf("id" to copilotAgent.id))
+        persistAgents()
+    }
+
     private fun launchTerminal(agentId: Int, command: String, folderPath: String?) {
         val terminalIndex = nextTerminalIndex++
         val terminalName = "${Constants.TERMINAL_NAME_PREFIX} $terminalIndex"
@@ -137,11 +172,14 @@ class AgentManagerService(private val project: Project) : Disposable {
         // Cancel any active JSONL polling for this agent
         jsonlPollingFutures.remove(agentId)?.cancel(false)
 
-        val timerManager = TimerManagerService.getInstance(project)
-        timerManager.cancelAllTimers(agentId)
+        // Skip file watcher / timer cleanup for Copilot agents (no terminal or JSONL)
+        if (!agent.isCopilot) {
+            val timerManager = TimerManagerService.getInstance(project)
+            timerManager.cancelAllTimers(agentId)
 
-        val fileWatcher = FileWatcherService.getInstance(project)
-        fileWatcher.stopFileWatching(agentId)
+            val fileWatcher = FileWatcherService.getInstance(project)
+            fileWatcher.stopFileWatching(agentId)
+        }
 
         bridge?.postMessage("agentClosed", mapOf("id" to agentId))
         persistAgents()
@@ -152,6 +190,7 @@ class AgentManagerService(private val project: Project) : Disposable {
             PersistedAgent(
                 id = agent.id,
                 isExternal = agent.isExternal,
+                isCopilot = agent.isCopilot,
                 jsonlFile = agent.jsonlFile,
                 projectDir = agent.projectDir,
                 folderName = agent.folderName
@@ -168,6 +207,20 @@ class AgentManagerService(private val project: Project) : Disposable {
             val persisted: List<PersistedAgent> = gson.fromJson(json, type)
 
             for (pa in persisted) {
+                if (pa.isCopilot) {
+                    // Restore Copilot agent without file watching
+                    val agent = AgentState(
+                        id = pa.id,
+                        isCopilot = true,
+                        projectDir = "",
+                        jsonlFile = "",
+                        folderName = pa.folderName
+                    )
+                    agents[pa.id] = agent
+                    if (pa.id >= nextAgentId) nextAgentId = pa.id + 1
+                    continue
+                }
+
                 val jsonlFile = File(pa.jsonlFile)
                 if (!jsonlFile.exists()) continue
 

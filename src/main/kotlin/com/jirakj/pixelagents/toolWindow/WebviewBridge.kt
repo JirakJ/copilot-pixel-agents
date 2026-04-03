@@ -35,6 +35,7 @@ class WebviewBridge(
     private val fileWatcher = FileWatcherService.getInstance(project)
     private val assetLoader = AssetLoaderService.getInstance(project)
     private val configPersistence = ConfigPersistenceService.getInstance()
+    private val copilotMonitor = CopilotMonitorService.getInstance(project)
 
     private val jsQuery: JBCefJSQuery
 
@@ -44,6 +45,7 @@ class WebviewBridge(
         timerManager.setBridge(this)
         transcriptParser.setBridge(this)
         assetLoader.setBridge(this)
+        copilotMonitor.setBridge(this)
         fileWatcher.initialize(this, agentManager.agents, timerManager, transcriptParser)
 
         // Set up JBCefJSQuery-based communication
@@ -113,6 +115,7 @@ class WebviewBridge(
         when (type) {
             "webviewReady" -> onWebviewReady()
             "openClaude" -> onOpenClaude(message)
+            "openCopilot" -> onOpenCopilot()
             "focusAgent" -> onFocusAgent(message)
             "closeAgent" -> onCloseAgent(message)
             "saveLayout" -> onSaveLayout(message)
@@ -188,6 +191,10 @@ class WebviewBridge(
         val folderPath = message.get("folderPath")?.asString
         val bypassPermissions = message.get("bypassPermissions")?.asBoolean ?: false
         agentManager.launchNewAgent(folderPath, bypassPermissions)
+    }
+
+    private fun onOpenCopilot() {
+        copilotMonitor.startMonitoring()
     }
 
     private fun onFocusAgent(message: JsonObject) {

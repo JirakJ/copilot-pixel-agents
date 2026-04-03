@@ -3,6 +3,7 @@ package com.jirakj.pixelagents.types
 data class AgentState(
     val id: Int,
     var isExternal: Boolean = false,
+    var isCopilot: Boolean = false,
     val projectDir: String,
     var jsonlFile: String,
     var fileOffset: Long = 0,
@@ -25,6 +26,7 @@ data class AgentState(
 data class PersistedAgent(
     val id: Int,
     val isExternal: Boolean = false,
+    val isCopilot: Boolean = false,
     val jsonlFile: String,
     val projectDir: String,
     val terminalName: String = "",
