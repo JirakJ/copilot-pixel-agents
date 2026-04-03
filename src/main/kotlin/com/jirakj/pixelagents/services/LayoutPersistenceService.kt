@@ -22,13 +22,6 @@ class LayoutPersistenceService(private val project: Project) : Disposable {
     private val layoutDir = File(System.getProperty("user.home"), Constants.LAYOUT_FILE_DIR)
     private val layoutFile = File(layoutDir, Constants.LAYOUT_FILE_NAME)
 
-    // TODO: Implement layout persistence
-    // - readLayoutFromFile(): Read and parse layout JSON
-    // - writeLayoutToFile(): Atomic write via .tmp + rename
-    // - migrateAndLoadLayout(): Check file → migrate old state → fall back to bundled default
-    // - watchLayoutFile(): Hybrid VFS listener + polling for cross-window sync
-    // - markOwnWrite(): Prevent watcher from re-reading own writes
-
     fun readLayoutFromFile(): String? {
         if (!layoutFile.exists()) return null
         return try {

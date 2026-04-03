@@ -88,7 +88,7 @@ class WebviewBridge(
             }
         }, browser.cefBrowser)
 
-        LOG.info("WebviewBridge initialized for project: ${project.name}")
+        LOG.info("WebviewBridge initialized")
     }
 
     fun postMessage(message: Any) {
@@ -110,7 +110,7 @@ class WebviewBridge(
 
     private fun handleWebviewMessage(message: JsonObject) {
         val type = message.get("type")?.asString ?: return
-        LOG.info("Received webview message: $type")
+        LOG.debug("Received webview message: $type")
 
         when (type) {
             "webviewReady" -> onWebviewReady()

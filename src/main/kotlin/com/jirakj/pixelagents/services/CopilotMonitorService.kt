@@ -73,13 +73,16 @@ class CopilotMonitorService(private val project: Project) : Disposable {
     private fun isCopilotChatWindow(windowId: String): Boolean {
         return windowId == Constants.COPILOT_CHAT_TOOL_WINDOW_ID ||
             windowId == "CopilotChat" ||
-            windowId.contains("Copilot") && windowId.contains("Chat")
+            windowId == "GitHub.Copilot.Chat" ||
+            (windowId.contains("Copilot", ignoreCase = true) && windowId.contains("Chat", ignoreCase = true))
     }
 
     private fun findCopilotToolWindow(): com.intellij.openapi.wm.ToolWindow? {
         val twm = ToolWindowManager.getInstance(project)
+        // Try known IDs in order of likelihood
         return twm.getToolWindow(Constants.COPILOT_CHAT_TOOL_WINDOW_ID)
             ?: twm.getToolWindow("CopilotChat")
+            ?: twm.getToolWindow("GitHub.Copilot.Chat")
     }
 
     fun startMonitoring() {

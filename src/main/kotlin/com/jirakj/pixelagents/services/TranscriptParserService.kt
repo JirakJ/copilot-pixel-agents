@@ -140,7 +140,7 @@ class TranscriptParserService(private val project: Project) : Disposable {
                     val input = block.getAsJsonObject("input")
                     val status = formatToolStatus(toolName, input)
 
-                    LOG.info("Agent $agentId tool start: $toolId $status")
+                    LOG.debug("Agent $agentId tool start: $toolId $status")
                     agent.activeToolIds.add(toolId)
                     agent.activeToolStatuses[toolId] = status
                     agent.activeToolNames[toolId] = toolName
@@ -189,12 +189,12 @@ class TranscriptParserService(private val project: Project) : Disposable {
 
                     // Detect background agent launches
                     if ((completedToolName == "Task" || completedToolName == "Agent") && isAsyncAgentResult(block)) {
-                        LOG.info("Agent $agentId background agent launched: $completedToolId")
+                        LOG.debug("Agent $agentId background agent launched: $completedToolId")
                         agent.backgroundAgentToolIds.add(completedToolId)
                         continue
                     }
 
-                    LOG.info("Agent $agentId tool done: $completedToolId")
+                    LOG.debug("Agent $agentId tool done: $completedToolId")
 
                     if (completedToolName == "Task" || completedToolName == "Agent") {
                         agent.activeSubagentToolIds.remove(completedToolId)
@@ -249,7 +249,7 @@ class TranscriptParserService(private val project: Project) : Disposable {
         val completedToolId = match.groupValues[1]
 
         if (agent.backgroundAgentToolIds.contains(completedToolId)) {
-            LOG.info("Agent $agentId background agent done: $completedToolId")
+            LOG.debug("Agent $agentId background agent done: $completedToolId")
             agent.backgroundAgentToolIds.remove(completedToolId)
             agent.activeSubagentToolIds.remove(completedToolId)
             agent.activeSubagentToolNames.remove(completedToolId)
@@ -352,7 +352,7 @@ class TranscriptParserService(private val project: Project) : Disposable {
                     val toolName = block.get("name")?.asString ?: ""
                     val status = formatToolStatus(toolName, block.getAsJsonObject("input"))
 
-                    LOG.info("Agent $agentId subagent tool start: $toolId $status (parent: $parentToolId)")
+                    LOG.debug("Agent $agentId subagent tool start: $toolId $status (parent: $parentToolId)")
 
                     agent.activeSubagentToolIds.getOrPut(parentToolId) { mutableSetOf() }.add(toolId)
                     agent.activeSubagentToolNames.getOrPut(parentToolId) { mutableMapOf() }[toolId] = toolName
@@ -375,7 +375,7 @@ class TranscriptParserService(private val project: Project) : Disposable {
                     if (block.get("type")?.asString != "tool_result") continue
                     val toolId = block.get("tool_use_id")?.asString ?: continue
 
-                    LOG.info("Agent $agentId subagent tool done: $toolId (parent: $parentToolId)")
+                    LOG.debug("Agent $agentId subagent tool done: $toolId (parent: $parentToolId)")
 
                     agent.activeSubagentToolIds[parentToolId]?.remove(toolId)
                     agent.activeSubagentToolNames[parentToolId]?.remove(toolId)

@@ -33,7 +33,7 @@ class PixelAgentsToolWindowFactory : ToolWindowFactory, DumbAware {
                 source: String?,
                 line: Int
             ): Boolean {
-                LOG.info("JCEF Console [$level] $source:$line - $message")
+                LOG.info("JCEF Console [$level] $message")
                 return false
             }
         }, browser.cefBrowser)

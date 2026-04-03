@@ -155,7 +155,7 @@ class AgentManagerService(private val project: Project) : Disposable {
         val future = scheduler.scheduleAtFixedRate({
             val file = File(jsonlFile)
             if (file.exists()) {
-                LOG.info("JSONL file found for agent $agentId: ${file.name}")
+                LOG.info("Agent $agentId: JSONL file found")
                 val fileWatcher = FileWatcherService.getInstance(project)
                 fileWatcher.startFileWatching(agentId, jsonlFile)
                 // Cancel this polling task now that file watching is active

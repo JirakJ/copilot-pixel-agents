@@ -4,10 +4,53 @@
     <vendor email="jirakj@users.noreply.github.com" url="https://github.com/JirakJ">JirakJ</vendor>
 
     <description><![CDATA[
-    Pixel art office where your GitHub Copilot agents come to life as animated characters.
-    Watch your AI agents work in a charming pixel art office, each represented by a unique animated character
-    that types, reads, and walks around as they complete coding tasks.
+<h2>Pixel Art Office for Your AI Coding Agents</h2>
+
+<p>Watch your AI coding agents come to life as animated pixel art characters in a charming virtual office!</p>
+
+<p>Each <b>Claude Code</b> terminal session and <b>GitHub Copilot Chat</b> session gets its own unique character
+that types, reads, walks around, and reacts in real-time as they work on your code.</p>
+
+<h3>Features</h3>
+<ul>
+  <li>🏢 <b>Pixel art office</b> — beautiful retro-style workspace rendered on canvas</li>
+  <li>🤖 <b>Claude Code integration</b> — each terminal gets a unique animated character</li>
+  <li>🧑‍💻 <b>GitHub Copilot Chat integration</b> — monitor Copilot activity with a dedicated character</li>
+  <li>🎨 <b>Layout editor</b> — paint floors, place walls, arrange furniture, customize colors</li>
+  <li>🎭 <b>6 unique character skins</b> with automatic diverse palette assignment</li>
+  <li>✨ <b>Matrix-style effects</b> — spawn/despawn digital rain animations</li>
+  <li>🔔 <b>Sound notifications</b> — audio alerts when agents need attention</li>
+  <li>📦 <b>Custom asset packs</b> — load external furniture and decoration packs</li>
+</ul>
+
+<h3>How It Works</h3>
+<ol>
+  <li>Open the <b>Pixel Agents</b> tool window (bottom panel)</li>
+  <li>Click <b>+ Agent</b> to launch a Claude Code terminal — a character appears in the office</li>
+  <li>Click <b>+ Copilot</b> to monitor GitHub Copilot Chat activity</li>
+  <li>Watch characters type when coding, read when searching, and wander when idle</li>
+  <li>Click <b>Layout</b> to customize your office — paint floors, add furniture, rearrange everything</li>
+</ol>
+
+<h3>Requirements</h3>
+<ul>
+  <li><a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code CLI</a> (for terminal agents)</li>
+  <li>GitHub Copilot plugin (optional, for Copilot Chat monitoring)</li>
+</ul>
     ]]></description>
+
+    <change-notes><![CDATA[
+<h3>0.1.0</h3>
+<ul>
+  <li>Initial release — JetBrains port of pixel-agents VS Code extension</li>
+  <li>Full pixel art office with canvas rendering via JCEF</li>
+  <li>Claude Code terminal integration with JSONL transcript monitoring</li>
+  <li>GitHub Copilot Chat integration with activity detection</li>
+  <li>Layout editor with floor painting, wall placement, furniture arrangement</li>
+  <li>6 character skins with diverse palette assignment and hue shifting</li>
+  <li>Sound notifications, debug view, layout import/export</li>
+</ul>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="terminal-support.xml">org.jetbrains.plugins.terminal</depends>
