@@ -92,7 +92,10 @@ class PixelAgentsToolWindowFactory : ToolWindowFactory, DumbAware {
 
         try {
             // Parse jar path from URL like "jar:file:/path/to/plugin.jar!/webview/index.html"
-            val jarPath = resourceUrl.path.substringBefore("!").removePrefix("file:")
+            val jarPath = java.net.URLDecoder.decode(
+                resourceUrl.path.substringBefore("!").removePrefix("file:"),
+                "UTF-8"
+            )
             val jarFile = File(jarPath)
 
             // Re-extract if JAR is newer than the cached index.html

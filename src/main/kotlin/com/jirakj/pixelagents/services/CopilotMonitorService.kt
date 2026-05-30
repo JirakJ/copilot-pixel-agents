@@ -95,9 +95,9 @@ class CopilotMonitorService(private val project: Project) : Disposable {
     private fun findCopilotToolWindow(): com.intellij.openapi.wm.ToolWindow? {
         val twm = ToolWindowManager.getInstance(project)
         return twm.getToolWindow(Constants.COPILOT_CHAT_TOOL_WINDOW_ID)
+            ?: twm.getToolWindow("Copilot Chat")
             ?: twm.getToolWindow("github.copilot.chat")
             ?: twm.getToolWindow("CopilotChat")
-            ?: twm.getToolWindow("GitHub.Copilot.Chat")
     }
 
     /**
